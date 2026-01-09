@@ -1,0 +1,10 @@
+pathway[xpack-llm]
+streamlit
+pandas
+numpy
+scikit-learn
+sentence-transformers
+reportlab
+python-dotenv
+requests
+openai
