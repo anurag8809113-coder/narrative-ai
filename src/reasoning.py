@@ -2,19 +2,19 @@ from src.llm_client import ask_llm
 import json, re
 
 TEMPLATE = """
+You must answer ONLY in JSON.
+
 Claim:
 {claim}
 
 Evidence:
 {evidence}
 
-Decide:
-SUPPORT / CONTRADICT / UNKNOWN
+Return ONLY this JSON:
 
-Return JSON:
 {{
- "label": "...",
- "reason": "..."
+ "label": "SUPPORT | CONTRADICT | UNKNOWN",
+ "reason": "short explanation"
 }}
 """
 
@@ -26,6 +26,7 @@ def _extract_json(text: str):
         return json.loads(match.group(0))
     except Exception:
         return None
+
 
 def classify(claim, evidence_chunks):
     if not evidence_chunks:
@@ -44,8 +45,10 @@ def classify(claim, evidence_chunks):
 
     label = data.get("label", "UNKNOWN").upper()
     reason = data.get("reason", "No explanation provided.")
+
     if label not in {"SUPPORT", "CONTRADICT", "UNKNOWN"}:
         label = "UNKNOWN"
+
     return label, reason
 
 
@@ -55,25 +58,24 @@ def decide(labels, reasons):
     contradict = labels.count("CONTRADICT")
     unknown = labels.count("UNKNOWN")
 
+    if total == 0:
+        return 0, "No valid predictions."
+
     if contradict >= 2:
         conf = round((contradict / total) * 100, 2)
         i = labels.index("CONTRADICT")
-        return 0, f"{reasons[i]} | SUPPORT:{support}, CONTRADICT:{contradict}, UNKNOWN:{unknown} | Confidence:{conf}%"
+        return 0, f"{reasons[i]} | Confidence: {conf}%"
 
     if support >= contradict:
         conf = round((support / total) * 100, 2)
         i = labels.index("SUPPORT")
-        return 1, f"{reasons[i]} | SUPPORT:{support}, CONTRADICT:{contradict}, UNKNOWN:{unknown} | Confidence:{conf}%"
+        return 1, f"{reasons[i]} | Confidence: {conf}%"
 
     conf = round((unknown / total) * 100, 2)
-    return 1, f"No strong contradictions | SUPPORT:{support}, CONTRADICT:{contradict}, UNKNOWN:{unknown} | Confidence:{conf}%"
+    i = labels.index("UNKNOWN")
+    return 2, f"{reasons[i]} | Confidence: {conf}%"
 
-
-def confidence_score(labels):
-    if not labels:
-        return 50
-    m = {"SUPPORT": 1, "UNKNOWN": 0, "CONTRADICT": -1}
-    raw = sum(m.get(l, 0) for l in labels)
-    N = len(labels)
-    return int(((raw + N) / (2 * N)) * 100)
-
+def confidence_score(part, total):
+    if total == 0:
+        return 0
+    return round((part / total) * 100, 2)
