@@ -84,6 +84,11 @@ if run:
                 labels.append(l)
                 reasons.append(r)
                 rows.append({"Claim": c, "Label": l, "Reason": r})
+            # ---------- SAFETY FIX ---------- 
+            if not labels:
+                labels = ["UNKNOWN"]
+                reasons = ["No claims could be evaluated."]
+
 
             # Final decision
             prediction, rationale = decide(labels, reasons)
