@@ -10,6 +10,13 @@ from src.reasoning import classify, decide, confidence_score
 from src.report import generate_pdf
 from src.llm_client import ask_llm
 
+def split_by_book(df):
+    books = {}
+    for name in df["book_name"].dropna().unique():
+        books[name] = df[df["book_name"] == name].copy()
+    return books
+
+
 # =========================
 # CLAIM EXTRACTION
 # =========================
@@ -152,51 +159,74 @@ with mode_tab[0]:
 # ==========================================================
 # TAB 2 — HACKATHON BATCH MODE
 # ==========================================================
+
 with mode_tab[1]:
 
-    st.subheader("📦 Hackathon Batch CSV Mode")
-    st.caption("Upload one story + a backstories CSV to generate consistency predictions.")
+    st.subheader("📦 Hackathon Smart Batch Mode")
+    st.caption("Upload CSV once — app auto-detects novels")
 
-    story_file = st.file_uploader("Upload Story file (.txt)", type=["txt"], key="story_upload")
-    back_csv = st.file_uploader("Upload Backstories CSV", type=["csv"], key="back_csv")
+    csv_file = st.file_uploader("Upload test.csv or train.csv", type=["csv"])
 
-    st.markdown("**CSV must contain columns:** `id`, `backstory`")
+    if csv_file:
+        df_all = pd.read_csv(csv_file)
 
-    mode2 = st.radio("Mode", ["Best Settings", "Manual Settings"], horizontal=True, key="batch_mode")
-    if mode2 == "Best Settings":
-        k2, alpha2 = 5, 0.65
-    else:
-        k2 = st.slider("Evidence chunks", 3, 10, 5, key="k_batch")
-        alpha2 = st.slider("Hybrid weight", 0.0, 1.0, 0.6, step=0.05, key="a_batch")
+        # ---- DEBUG (temporary) ----
+        st.write("Columns detected:", list(df_all.columns))
+        st.write("Sample rows:")
+        st.dataframe(df_all.head())
 
-    run_batch = st.button("🚀 Run Batch Analysis", type="primary", key="run_batch")
+        if "book_name" not in df_all.columns:
+            st.error("❌ Column 'book_name' not found in CSV")
+            st.stop()
 
-    if run_batch:
-        log_usage("run_batch")
+        # ---- SPLIT BY NOVEL ----
+        books = split_by_book(df_all)
 
-        if not story_file or not back_csv:
-            st.warning("Please upload both Story file and Backstories CSV.")
+        if not books:
+            st.error("❌ No novels detected")
+            st.stop()
+
+        st.success(f"Detected {len(books)} novels")
+
+        # ---- DROPDOWN ----
+        book_selected = st.selectbox(
+            "Select Novel to Analyze",
+            list(books.keys())
+        )
+
+        # ---- STORY INPUT ----
+        st.markdown("### Paste Story for selected novel")
+        story_text = st.text_area("Story", height=200)
+
+        # ---- SETTINGS ----
+        mode2 = st.radio("Mode", ["Best Settings", "Manual Settings"], horizontal=True)
+        if mode2 == "Best Settings":
+            k2, alpha2 = 5, 0.65
         else:
-            with st.spinner("Running batch reasoning engine..."):
+            k2 = st.slider("Evidence chunks", 3, 10, 5)
+            alpha2 = st.slider("Hybrid weight", 0.0, 1.0, 0.6, step=0.05)
 
-                story_text = story_file.read().decode("utf-8")
+        run_batch = st.button("🚀 Run for Selected Novel")
+
+        if run_batch:
+
+            if not story_text:
+                st.warning("Please paste the story for this novel.")
+                st.stop()
+
+            with st.spinner(f"Running analysis for: {book_selected}"):
+
                 chunks = chunk_text(story_text)
-
-                df = pd.read_csv(back_csv)
-
-                if "id" not in df.columns or "backstory" not in df.columns:
-                    st.error("CSV must contain columns: id, backstory")
-                    st.stop()
+                df_book = books[book_selected]
 
                 results = []
                 progress = st.progress(0)
 
-                for i, row in df.iterrows():
+                for i, row in df_book.iterrows():
                     bid = row["id"]
-                    backstory_text = str(row["backstory"])
+                    backstory = str(row["content"])
 
-                    claims = extract_claims(backstory_text)
-
+                    claims = extract_claims(backstory)
                     labels, reasons = [], []
 
                     for c in claims:
@@ -214,26 +244,27 @@ with mode_tab[1]:
 
                     results.append({
                         "Backstory ID": bid,
+                        "Book": book_selected,
                         "Prediction": "consistent" if pred == 1 else "inconsistent",
                         "Confidence (%)": conf
                     })
 
-                    progress.progress((i + 1) / len(df))
+                    progress.progress((i + 1) / len(df_book))
 
-            # ---------- OUTPUT ----------
+            # ---- OUTPUT ----
             out_df = pd.DataFrame(results)
 
-            st.success("✅ Batch analysis complete")
-            st.subheader("📊 Results")
+            st.success("✅ Analysis complete for selected novel")
             st.dataframe(out_df, use_container_width=True)
 
-            csv = out_df.to_csv(index=False).encode("utf-8")
+            csv_out = out_df.to_csv(index=False).encode("utf-8")
             st.download_button(
-                "⬇️ Download Hackathon Results CSV",
-                csv,
-                file_name="hackathon_results.csv",
+                f"⬇️ Download Results for {book_selected}",
+                csv_out,
+                file_name=f"results_{book_selected.replace(' ','_')}.csv",
                 mime="text/csv",
             )
+
 
 # ==========================================================
 # LEADERBOARD (GLOBAL)
