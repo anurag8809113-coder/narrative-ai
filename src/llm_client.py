@@ -1,59 +1,36 @@
 import os
 import requests
-import json
 
-# ================================
-# HuggingFace Inference API Client
-# ================================
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-HF_API_KEY = os.getenv("HF_API_KEY")
-
-# You can change model if you want
-MODEL = "google/flan-t5-large"
-API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
-
-HEADERS = {
-    "Authorization": f"Bearer {HF_API_KEY}",
-    "Content-Type": "application/json"
-}
+API_URL = "https://openrouter.ai/api/v1/chat/completions"
+MODEL = "mistralai/mistral-7b-instruct:free"  # free tier model
 
 def ask_llm(prompt: str) -> str:
-    """
-    Sends prompt to HuggingFace Inference API.
-    Works on:
-    - Local
-    - Streamlit Cloud
-    - Any server
-    """
+    if not OPENROUTER_API_KEY:
+        return "[LLM ERROR] OPENROUTER_API_KEY not set"
 
-    if not HF_API_KEY:
-        return '{"label":"UNKNOWN","reason":"HF_API_KEY not set"}'
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://your-app-name.streamlit.app",
+        "X-Title": "Narrative Consistency Engine"
+    }
 
     payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 300,
-            "temperature": 0.2
-        }
+        "model": MODEL,
+        "messages": [
+            {"role": "system", "content": "Return clear text. If asked for JSON, return valid JSON only."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.2
     }
 
     try:
-        r = requests.post(API_URL, headers=HEADERS, json=payload, timeout=60)
+        r = requests.post(API_URL, headers=headers, json=payload, timeout=60)
         r.raise_for_status()
-
         data = r.json()
-
-        # HF usually returns list
-        if isinstance(data, list) and "generated_text" in data[0]:
-            return data[0]["generated_text"]
-
-        # Some models return dict
-        if isinstance(data, dict) and "generated_text" in data:
-            return data["generated_text"]
-
-        # Fallback
-        return json.dumps(data)
-
+        return data["choices"][0]["message"]["content"]
     except Exception as e:
-        return f'{{"label":"UNKNOWN","reason":"LLM error: {e}"}}'
+        return f"[LLM ERROR] {e}"
 
