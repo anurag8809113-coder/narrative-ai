@@ -2,15 +2,17 @@ import streamlit as st
 import time
 import pandas as pd
 import os, datetime
+import re
 
 from src.ingest import chunk_text
 from src.retrieval import retrieve
-from src.claims import extract_claims
 from src.reasoning import classify, decide, confidence_score
 from src.report import generate_pdf
 from src.llm_client import ask_llm
-import re
 
+# =========================
+# CLAIM EXTRACTION
+# =========================
 PROMPT = """
 Extract 3–5 factual claims from the text below.
 Return them as simple bullet points.
@@ -21,182 +23,230 @@ Text:
 
 def extract_claims(text):
     raw = ask_llm(PROMPT.format(text=text))
-
-    # Fallback parser: extract lines
     lines = raw.split("\n")
     claims = []
 
     for ln in lines:
         ln = ln.strip()
-        # remove bullets
         ln = re.sub(r"^[-*•\d.]+\s*", "", ln)
         if len(ln) > 10:
             claims.append(ln)
 
-    # safety fallback
     if not claims:
         claims = ["No explicit claims could be extracted from the backstory."]
-
     return claims
 
 
-# -------------------------
-# Instant Analytics
-# -------------------------
+# =========================
+# INSTANT ANALYTICS
+# =========================
 USAGE_LOG = "usage_log.csv"
 
 def log_usage(action):
     if not os.path.exists(USAGE_LOG):
         with open(USAGE_LOG, "w") as f:
             f.write("timestamp,action\n")
-
     with open(USAGE_LOG, "a") as f:
         f.write(f"{int(time.time())},{action}\n")
 
 log_usage("page_open")
 
-# -------------------------
-# Google Analytics
-# -------------------------
-st.markdown("""
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-ECQT5LSLCM"></script>
-<script>
-window.dataLayer = window.dataLayer || [];
-function gtag(){dataLayer.push(arguments);}
-gtag('js', new Date());
-gtag('config', 'G-ECQT5LSLCM');
-</script>
-""", unsafe_allow_html=True)
-
-# -------------------------
-# UI
-# -------------------------
+# =========================
+# UI SETUP
+# =========================
 st.set_page_config(page_title="Narrative Consistency Engine", layout="wide")
 st.title("📘 Narrative Consistency Reasoning Engine – PRO")
 
-c1, c2 = st.columns(2)
-with c1:
-    story_text = st.text_area("Paste Story", height=280)
-with c2:
-    backstory_text = st.text_area("Paste Backstory", height=280)
+mode_tab = st.tabs(["🔍 Single Analysis", "📦 Hackathon Batch Mode"])
 
-st.divider()
+# ==========================================================
+# TAB 1 — SINGLE STORY + BACKSTORY MODE
+# ==========================================================
+with mode_tab[0]:
 
-mode = st.radio("Mode", ["Best Settings", "Manual Settings"], horizontal=True)
-if mode == "Best Settings":
-    k, alpha = 5, 0.65
-else:
-    k = st.slider("Evidence chunks", 3, 10, 5)
-    alpha = st.slider("Hybrid weight", 0.0, 1.0, 0.6, step=0.05)
+    c1, c2 = st.columns(2)
+    with c1:
+        story_text = st.text_area("Paste Story", height=280)
+    with c2:
+        backstory_text = st.text_area("Paste Backstory", height=280)
 
-run = st.button("🚀 Run Analysis", type="primary")
+    st.divider()
 
-# -------------------------
-# Main Logic
-# -------------------------
-if run:
-    log_usage("run_analysis")
-
-    if not story_text or not backstory_text:
-        st.warning("Please paste both Story and Backstory.")
+    mode = st.radio("Mode", ["Best Settings", "Manual Settings"], horizontal=True, key="single_mode")
+    if mode == "Best Settings":
+        k, alpha = 5, 0.65
     else:
-        with st.spinner("Running full reasoning engine..."):
-            chunks = chunk_text(story_text)
-            claims = extract_claims(backstory_text)
+        k = st.slider("Evidence chunks", 3, 10, 5, key="k_single")
+        alpha = st.slider("Hybrid weight", 0.0, 1.0, 0.6, step=0.05, key="a_single")
 
-            labels, reasons = [], []
-            rows = []
+    run = st.button("🚀 Run Analysis", type="primary", key="run_single")
 
-            for c in claims:
-                ev = retrieve(chunks, c, k=k, alpha=alpha)
-                l, r = classify(c, ev)
-                r = f"[Evidence {len(ev)}] {r}"
+    if run:
+        log_usage("run_single")
 
-                labels.append(l)
-                reasons.append(r)
-                rows.append({"Claim": c, "Label": l, "Reason": r})
-            # ---------- SAFETY FIX ---------- 
-            if not labels:
-                labels = ["UNKNOWN"]
-                reasons = ["No claims could be evaluated."]
+        if not story_text or not backstory_text:
+            st.warning("Please paste both Story and Backstory.")
+        else:
+            with st.spinner("Running full reasoning engine..."):
+                chunks = chunk_text(story_text)
+                claims = extract_claims(backstory_text)
 
+                labels, reasons, rows = [], [], []
 
-            # Final decision
-            prediction, rationale = decide(labels, reasons)
+                for c in claims:
+                    ev = retrieve(chunks, c, k=k, alpha=alpha)
+                    l, r = classify(c, ev)
+                    r = f"[Evidence {len(ev)}] {r}"
 
-            # -------- CONFIDENCE (FIXED) --------
-            support = labels.count("SUPPORT")
-            contradict = labels.count("CONTRADICT")
-            unknown = labels.count("UNKNOWN")
-            total = len(labels)
+                    labels.append(l)
+                    reasons.append(r)
+                    rows.append({"Claim": c, "Label": l, "Reason": r})
 
-            conf = confidence_score(labels)
+                if not labels:
+                    labels = ["UNKNOWN"]
+                    reasons = ["No claims could be evaluated."]
 
+                prediction, rationale = decide(labels, reasons)
+                conf = confidence_score(labels)
 
-        # -------------------------
-        # OUTPUT
-        # -------------------------
-        st.subheader("✅ Result")
-        st.write("**Prediction:**", "Consistent" if prediction == 1 else "Inconsistent")
-        st.write("**Rationale:**", rationale)
+            # ---------- OUTPUT ----------
+            st.subheader("✅ Result")
+            st.write("**Prediction:**", "Consistent" if prediction == 1 else "Inconsistent")
+            st.write("**Rationale:**", rationale)
 
-        st.subheader("📊 Confidence")
-        st.progress(conf / 100)
-        st.write(f"{conf}% sure")
+            st.subheader("📊 Confidence")
+            st.progress(conf / 100)
+            st.write(f"{conf}% sure")
 
-        df = pd.DataFrame(rows)
-        st.subheader("📋 Claim-wise Analysis")
-        st.dataframe(df)
+            df = pd.DataFrame(rows)
+            st.subheader("📋 Claim-wise Analysis")
+            st.dataframe(df, use_container_width=True)
 
-        st.download_button(
-            "⬇️ Download CSV",
-            data=df.to_csv(index=False),
-            file_name="analysis_results.csv",
-            mime="text/csv"
-        )
-
-        # -------------------------
-        # PDF Report
-        # -------------------------
-        os.makedirs("results", exist_ok=True)
-        pdf_file = "results/report.pdf"
-        generate_pdf(
-            pdf_file,
-            "Consistent" if prediction == 1 else "Inconsistent",
-            conf,
-            rationale,
-            rows
-        )
-
-        with open(pdf_file, "rb") as f:
             st.download_button(
-                "📄 Download PDF Report",
-                data=f,
-                file_name="analysis_report.pdf",
-                mime="application/pdf"
+                "⬇️ Download CSV",
+                data=df.to_csv(index=False),
+                file_name="analysis_results.csv",
+                mime="text/csv"
             )
 
-        # -------------------------
-        # Leaderboard
-        # -------------------------
-        lb_file = "results/leaderboard.csv"
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            # ---------- PDF ----------
+            os.makedirs("results", exist_ok=True)
+            pdf_file = "results/report.pdf"
 
-        new_row = {
-            "Time": now,
-            "Claims": len(labels),
-            "Prediction": "Consistent" if prediction == 1 else "Inconsistent",
-            "Confidence": conf
-        }
+            generate_pdf(
+                pdf_file,
+                "Consistent" if prediction == 1 else "Inconsistent",
+                conf,
+                rationale,
+                rows
+            )
 
-        if os.path.exists(lb_file) and os.path.getsize(lb_file) > 0:
-            lb = pd.read_csv(lb_file)
-            lb = pd.concat([lb, pd.DataFrame([new_row])], ignore_index=True)
+            with open(pdf_file, "rb") as f:
+                st.download_button(
+                    "📄 Download PDF Report",
+                    data=f,
+                    file_name="analysis_report.pdf",
+                    mime="application/pdf"
+                )
+
+# ==========================================================
+# TAB 2 — HACKATHON BATCH MODE
+# ==========================================================
+with mode_tab[1]:
+
+    st.subheader("📦 Hackathon Batch CSV Mode")
+    st.caption("Upload one story + a backstories CSV to generate consistency predictions.")
+
+    story_file = st.file_uploader("Upload Story file (.txt)", type=["txt"], key="story_upload")
+    back_csv = st.file_uploader("Upload Backstories CSV", type=["csv"], key="back_csv")
+
+    st.markdown("**CSV must contain columns:** `id`, `backstory`")
+
+    mode2 = st.radio("Mode", ["Best Settings", "Manual Settings"], horizontal=True, key="batch_mode")
+    if mode2 == "Best Settings":
+        k2, alpha2 = 5, 0.65
+    else:
+        k2 = st.slider("Evidence chunks", 3, 10, 5, key="k_batch")
+        alpha2 = st.slider("Hybrid weight", 0.0, 1.0, 0.6, step=0.05, key="a_batch")
+
+    run_batch = st.button("🚀 Run Batch Analysis", type="primary", key="run_batch")
+
+    if run_batch:
+        log_usage("run_batch")
+
+        if not story_file or not back_csv:
+            st.warning("Please upload both Story file and Backstories CSV.")
         else:
-            lb = pd.DataFrame([new_row])
+            with st.spinner("Running batch reasoning engine..."):
 
-        lb.to_csv(lb_file, index=False)
+                story_text = story_file.read().decode("utf-8")
+                chunks = chunk_text(story_text)
 
-        st.subheader("🏆 Leaderboard (History)")
-        st.dataframe(lb.tail(10))
+                df = pd.read_csv(back_csv)
+
+                if "id" not in df.columns or "backstory" not in df.columns:
+                    st.error("CSV must contain columns: id, backstory")
+                    st.stop()
+
+                results = []
+                progress = st.progress(0)
+
+                for i, row in df.iterrows():
+                    bid = row["id"]
+                    backstory_text = str(row["backstory"])
+
+                    claims = extract_claims(backstory_text)
+
+                    labels, reasons = [], []
+
+                    for c in claims:
+                        ev = retrieve(chunks, c, k=k2, alpha=alpha2)
+                        l, r = classify(c, ev)
+                        labels.append(l)
+                        reasons.append(r)
+
+                    if not labels:
+                        labels = ["UNKNOWN"]
+                        reasons = ["No claims evaluated"]
+
+                    pred, rat = decide(labels, reasons)
+                    conf = confidence_score(labels)
+
+                    results.append({
+                        "Backstory ID": bid,
+                        "Prediction": "consistent" if pred == 1 else "inconsistent",
+                        "Confidence (%)": conf
+                    })
+
+                    progress.progress((i + 1) / len(df))
+
+            # ---------- OUTPUT ----------
+            out_df = pd.DataFrame(results)
+
+            st.success("✅ Batch analysis complete")
+            st.subheader("📊 Results")
+            st.dataframe(out_df, use_container_width=True)
+
+            csv = out_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "⬇️ Download Hackathon Results CSV",
+                csv,
+                file_name="hackathon_results.csv",
+                mime="text/csv",
+            )
+
+# ==========================================================
+# LEADERBOARD (GLOBAL)
+# ==========================================================
+st.divider()
+st.subheader("🏆 Leaderboard (History)")
+
+lb_file = "results/leaderboard.csv"
+os.makedirs("results", exist_ok=True)
+
+if os.path.exists(lb_file) and os.path.getsize(lb_file) > 0:
+    lb = pd.read_csv(lb_file)
+    st.dataframe(lb.tail(10), use_container_width=True)
+else:
+    st.info("No history yet. Run some analyses to build leaderboard.")
 
