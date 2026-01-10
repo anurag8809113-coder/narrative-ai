@@ -8,6 +8,37 @@ from src.retrieval import retrieve
 from src.claims import extract_claims
 from src.reasoning import classify, decide, confidence_score
 from src.report import generate_pdf
+from src.llm_client import ask_llm
+import re
+
+PROMPT = """
+Extract 3–5 factual claims from the text below.
+Return them as simple bullet points.
+
+Text:
+{text}
+"""
+
+def extract_claims(text):
+    raw = ask_llm(PROMPT.format(text=text))
+
+    # Fallback parser: extract lines
+    lines = raw.split("\n")
+    claims = []
+
+    for ln in lines:
+        ln = ln.strip()
+        # remove bullets
+        ln = re.sub(r"^[-*•\d.]+\s*", "", ln)
+        if len(ln) > 10:
+            claims.append(ln)
+
+    # safety fallback
+    if not claims:
+        claims = ["No explicit claims could be extracted from the backstory."]
+
+    return claims
+
 
 # -------------------------
 # Instant Analytics
