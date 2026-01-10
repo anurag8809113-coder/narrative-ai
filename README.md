@@ -1,28 +1,44 @@
 # Narrative Consistency Reasoning Engine
 
-## Problem
-Given a novel and a hypothetical backstory, determine whether the backstory is
-consistent with the story.
+This project checks whether a given backstory is **consistent or inconsistent**
+with a novel using:
 
-## Solution
-We built a reasoning pipeline that:
-1. Splits the novel into chunks.
-2. Extracts atomic claims from the backstory using a local LLM.
-3. Retrieves relevant evidence with TF-IDF similarity.
-4. Classifies each claim as SUPPORT / CONTRADICT / UNKNOWN.
-5. Applies constraint-based logic to make a final decision.
-6. Outputs explainable results with confidence scores.
+- Claim extraction
+- Hybrid retrieval (TF-IDF + embeddings)
+- LLM-based reasoning
+- Explainable verdicts + confidence score
 
-## Tech Stack
-- Python
-- Pathway (core pipeline orchestration)
-- Ollama + Llama3 (local LLM)
-- scikit-learn (TF-IDF retrieval)
-- Matplotlib (confidence visualization)
+---
 
-## How to Run
+## 🚀 Features
+
+- ✅ Single story analysis (UI)
+- ✅ Hackathon batch CSV mode (UI)
+- ✅ Claim-wise explainable reasoning
+- ✅ Confidence meter
+- ✅ CSV export
+- ✅ PDF report generation
+- ✅ Leaderboard history
+- ✅ Free online deployment (Streamlit Cloud)
+
+---
+
+## 📦 Hackathon Batch Mode
+
+1. Upload a story `.txt` file  
+2. Upload a backstories `.csv` file  
+   (must contain columns: `id`, `backstory`)  
+3. Click **Run Batch Analysis**  
+4. Download `hackathon_results.csv`
+
+---
+
+## 📝 Submission Pipeline
+
 ```bash
-source venv/bin/activate
-python src/pipeline.py
-python plot_results.py
+# Step 1 — Generate submission format
+python src/format_submission.py
+
+# Step 2 — Validate
+python src/validate_submission.py
 
