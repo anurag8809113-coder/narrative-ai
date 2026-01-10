@@ -43,13 +43,13 @@ def _detect_label_from_text(text):
 
     t = text.lower()
     if "contradict" in t:
-        return "CONTRADICT", text.strip()
+        return "CONTRADICT", "The novel contradicts this claim."
     if "support" in t:
-        return "SUPPORT", text.strip()
-    if "unknown" in t:
-        return "UNKNOWN", text.strip()
+        return "SUPPORT", "The novel supports this claim."
+    if "unknown" in t or "not possible" in t or "cannot determine" in t:
+        return "UNKNOWN","Not enough evidence in the novel to verify this claim."
 
-    return "UNKNOWN", text.strip()
+    return "UNKNOWN", "Not enough evidence in the novel to verify this claim."
 
 # -------------------------
 # Core functions
