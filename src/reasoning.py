@@ -1,7 +1,11 @@
 from src.llm_client import ask_llm
 import json, re
 
-TEMPLATE = """
+# -------------------------
+# TEMPLATE (SAFE)
+# -------------------------
+def build_prompt(claim, evidence):
+    return f"""
 Claim:
 {claim}
 
@@ -12,10 +16,10 @@ Decide:
 SUPPORT / CONTRADICT / UNKNOWN
 
 If possible return JSON:
-{
- "label": "...",
- "reason": "..."
-}
+{{
+  "label": "...",
+  "reason": "..."
+}}
 Otherwise return plain text starting with:
 SUPPORT / CONTRADICT / UNKNOWN
 """
@@ -62,6 +66,7 @@ def classify(claim, evidence_chunks):
     prompt = TEMPLATE.format(
         claim=claim,
         evidence="\n---\n".join(evidence_chunks[:5])
+        prompt = build_prompt(claim, evidence_text)
     )
 
     raw = ask_llm(prompt)
