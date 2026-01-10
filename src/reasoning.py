@@ -78,35 +78,43 @@ def classify(claim, evidence_chunks):
 
 def decide(labels, reasons):
     total = len(labels)
-    if total == 0:
-        return 1, "No claims evaluated."
-
     support = labels.count("SUPPORT")
     contradict = labels.count("CONTRADICT")
     unknown = labels.count("UNKNOWN")
 
-    if contradict >= 2:
+    # Strong contradiction wins
+    if contradict > support:
         i = labels.index("CONTRADICT")
-        conf = round((contradict / total) * 100, 2)
-        return 0, f"{reasons[i]} | Confidence:{conf}%"
+        return 0, f"{reasons[i]} | SUPPORT:{support}, CONTRADICT:{contradict}, UNKNOWN:{unknown}"
 
+    # Support only if clearly stronger
     if support > contradict:
         i = labels.index("SUPPORT")
-        conf = round((support / total) * 100, 2)
-        return 1, f"{reasons[i]} | Confidence:{conf}%"
+        return 1, f"{reasons[i]} | SUPPORT:{support}, CONTRADICT:{contradict}, UNKNOWN:{unknown}"
 
-    return 1, "No strong contradictions found."
+    # Otherwise uncertain
+    return 0, f"Unclear evidence | SUPPORT:{support}, CONTRADICT:{contradict}, UNKNOWN:{unknown}"
 
 
 def confidence_score(labels):
     if not labels:
-        return 0.0
+        return 0
 
     total = len(labels)
     support = labels.count("SUPPORT")
     contradict = labels.count("CONTRADICT")
     unknown = labels.count("UNKNOWN")
 
-    best = max(support, contradict, unknown)
-    return round((best / total) * 100, 2)
+    strongest = max(support, contradict)
+
+    # agar sab UNKNOWN hai to low confidence
+    if strongest == 0:
+        return 20
+
+    conf = (strongest / total) * 100
+
+    # cap confidence so it never looks fake-perfect
+    conf = min(conf, 90)
+
+    return round(conf, 2)
 
