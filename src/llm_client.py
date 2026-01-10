@@ -9,7 +9,7 @@ import json
 HF_API_KEY = os.getenv("HF_API_KEY")
 
 # You can change model if you want
-MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
+MODEL = "google/flan-t5-large"
 API_URL = f"https://api-inference.huggingface.co/models/{MODEL}"
 
 HEADERS = {
