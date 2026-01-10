@@ -249,7 +249,15 @@ with mode_tab[1]:
                         "Confidence (%)": conf
                     })
 
-                    progress.progress((i + 1) / len(df_book))
+                    total = len(df_book)
+
+                    if total > 0:
+                        value = (i + 1) / total
+                        value = min(max(value, 0.0), 1.0)   # 0–1 ke beech lock
+                        progress.progress(value)
+                    else:
+                        progress.progress(1.0)
+
 
             # ---- OUTPUT ----
             out_df = pd.DataFrame(results)
