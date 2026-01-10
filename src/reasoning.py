@@ -1,33 +1,31 @@
 from src.llm_client import ask_llm
-import json, re
+import json
+import re
 
 # -------------------------
-# TEMPLATE (SAFE)
+# Prompt Builder
 # -------------------------
 def build_prompt(claim, evidence):
-    return f"""
-Claim:
-{claim}
-
-Evidence:
-{evidence}
-
-Decide:
-SUPPORT / CONTRADICT / UNKNOWN
-
-If possible return JSON:
-{{
-  "label": "...",
-  "reason": "..."
-}}
-Otherwise return plain text starting with:
-SUPPORT / CONTRADICT / UNKNOWN
-"""
+    return (
+        "Claim:\n"
+        f"{claim}\n\n"
+        "Evidence:\n"
+        f"{evidence}\n\n"
+        "Decide:\n"
+        "SUPPORT / CONTRADICT / UNKNOWN\n\n"
+        "If possible return JSON:\n"
+        "{\n"
+        '  "label": "...",\n'
+        '  "reason": "..."\n'
+        "}\n"
+        "Otherwise return plain text starting with:\n"
+        "SUPPORT / CONTRADICT / UNKNOWN\n"
+    )
 
 # -------------------------
 # Helpers
 # -------------------------
-def _extract_json(text: str):
+def _extract_json(text):
     if not text:
         return None
     match = re.search(r"\{.*\}", text, re.DOTALL)
@@ -39,12 +37,11 @@ def _extract_json(text: str):
         return None
 
 
-def _detect_label_from_text(text: str):
+def _detect_label_from_text(text):
     if not text:
         return "UNKNOWN", "No response from model."
 
     t = text.lower()
-
     if "contradict" in t:
         return "CONTRADICT", text.strip()
     if "support" in t:
@@ -52,9 +49,7 @@ def _detect_label_from_text(text: str):
     if "unknown" in t:
         return "UNKNOWN", text.strip()
 
-    # fallback
     return "UNKNOWN", text.strip()
-
 
 # -------------------------
 # Core functions
@@ -63,15 +58,12 @@ def classify(claim, evidence_chunks):
     if not evidence_chunks:
         return "UNKNOWN", "No evidence."
 
-    prompt = TEMPLATE.format(
-        claim=claim,
-        evidence="\n---\n".join(evidence_chunks[:5])
-        prompt = build_prompt(claim, evidence_text)
-    )
+    evidence_text = "\n---\n".join(evidence_chunks[:5])
+    prompt = build_prompt(claim, evidence_text)
 
     raw = ask_llm(prompt)
 
-    # 1️⃣ Try JSON first
+    # Try JSON first
     data = _extract_json(raw)
     if data:
         label = str(data.get("label", "UNKNOWN")).upper()
@@ -79,7 +71,7 @@ def classify(claim, evidence_chunks):
         if label in {"SUPPORT", "CONTRADICT", "UNKNOWN"}:
             return label, reason or "No explanation provided."
 
-    # 2️⃣ Fallback to text detection
+    # Fallback to text detection
     label, reason = _detect_label_from_text(raw)
     return label, reason
 
@@ -107,9 +99,6 @@ def decide(labels, reasons):
 
 
 def confidence_score(labels):
-    """
-    Always returns confidence between 0–100.
-    """
     if not labels:
         return 0.0
 
