@@ -94,10 +94,8 @@ if run:
             unknown = labels.count("UNKNOWN")
             total = len(labels)
 
-            conf = confidence_score(
-                max(support, contradict, unknown),
-                total
-            )
+            conf = confidence_score(labels)
+
 
         # -------------------------
         # OUTPUT

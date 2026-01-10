@@ -75,7 +75,18 @@ def decide(labels, reasons):
     i = labels.index("UNKNOWN")
     return 2, f"{reasons[i]} | Confidence: {conf}%"
 
-def confidence_score(part, total):
-    if total == 0:
-        return 0
-    return round((part / total) * 100, 2)
+def confidence_score(labels):
+    """
+    Calculates confidence based on majority label.
+    """
+    if not labels:
+        return 0.0
+
+    total = len(labels)
+    support = labels.count("SUPPORT")
+    contradict = labels.count("CONTRADICT")
+    unknown = labels.count("UNKNOWN")
+
+    best = max(support, contradict, unknown)
+    return round((best / total) * 100, 2)
+
