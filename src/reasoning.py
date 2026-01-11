@@ -1,101 +1,82 @@
 from src.llm_client import ask_llm
-import json
-import re
+import json, re
 
-# -------------------------
-# Prompt Builder
-# -------------------------
-def build_prompt(claim, evidence):
-    return (
-        "Claim:\n"
-        f"{claim}\n\n"
-        "Evidence:\n"
-        f"{evidence}\n\n"
-        "Decide:\n"
-        "SUPPORT / CONTRADICT / UNKNOWN\n\n"
-        "If possible return JSON:\n"
-        "{\n"
-        '  "label": "...",\n'
-        '  "reason": "..."\n'
-        "}\n"
-        "Otherwise return plain text starting with:\n"
-        "SUPPORT / CONTRADICT / UNKNOWN\n"
-    )
+TEMPLATE = """
+Claim:
+{claim}
 
-# -------------------------
-# Helpers
-# -------------------------
-def _extract_json(text):
+Evidence:
+{evidence}
+
+Decide:
+SUPPORT / CONTRADICT / UNKNOWN
+
+Return JSON exactly in this format:
+{{
+  "label": "SUPPORT|CONTRADICT|UNKNOWN",
+  "reason": "short explanation"
+}}
+"""
+
+def _extract_json(text: str):
     if not text:
         return None
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+    m = re.search(r"\{.*\}", text, re.DOTALL)
+    if not m:
         return None
     try:
-        return json.loads(match.group(0))
+        return json.loads(m.group(0))
     except Exception:
         return None
 
-
-def _detect_label_from_text(text):
-    if not text:
-        return "UNKNOWN", "No response from model."
-
-    t = text.lower()
-    if "contradict" in t:
-        return "CONTRADICT", "The novel contradicts this claim."
-    if "support" in t:
-        return "SUPPORT", "The novel supports this claim."
-    if "unknown" in t or "not possible" in t or "cannot determine" in t:
-        return "UNKNOWN","Not enough evidence in the novel to verify this claim."
-
-    return "UNKNOWN", "Not enough evidence in the novel to verify this claim."
-
-# -------------------------
-# Core functions
-# -------------------------
+# ---------- CLASSIFY ----------
 def classify(claim, evidence_chunks):
     if not evidence_chunks:
-        return "UNKNOWN", "No evidence."
+        return "UNKNOWN", "No evidence found in story."
 
-    evidence_text = "\n---\n".join(evidence_chunks[:5])
-    prompt = build_prompt(claim, evidence_text)
+    prompt = TEMPLATE.format(
+        claim=claim,
+        evidence="\n---\n".join(evidence_chunks[:5])
+    )
 
     raw = ask_llm(prompt)
 
-    # Try JSON first
     data = _extract_json(raw)
-    if data:
-        label = str(data.get("label", "UNKNOWN")).upper()
-        reason = str(data.get("reason", "")).strip()
-        if label in {"SUPPORT", "CONTRADICT", "UNKNOWN"}:
-            return label, reason or "No explanation provided."
 
-    # Fallback to text detection
-    label, reason = _detect_label_from_text(raw)
+    # STRICT fallback — never auto-support
+    if not data:
+        return "UNKNOWN", "LLM could not judge this claim."
+
+    label = str(data.get("label", "UNKNOWN")).upper()
+    reason = str(data.get("reason", "No explanation provided."))
+
+    if label not in {"SUPPORT", "CONTRADICT", "UNKNOWN"}:
+        label = "UNKNOWN"
+
     return label, reason
 
 
+# ---------- DECIDE ----------
 def decide(labels, reasons):
-    total = len(labels)
     support = labels.count("SUPPORT")
     contradict = labels.count("CONTRADICT")
     unknown = labels.count("UNKNOWN")
 
-    # Strong contradiction wins
+    # Clear contradiction wins
     if contradict > support:
         i = labels.index("CONTRADICT")
         return 0, f"{reasons[i]} | SUPPORT:{support}, CONTRADICT:{contradict}, UNKNOWN:{unknown}"
 
-    # Support only if clearly stronger
+    # Clear support wins
     if support > contradict:
         i = labels.index("SUPPORT")
         return 1, f"{reasons[i]} | SUPPORT:{support}, CONTRADICT:{contradict}, UNKNOWN:{unknown}"
 
-    # Otherwise uncertain
-    return 0, f"Unclear evidence | SUPPORT:{support}, CONTRADICT:{contradict}, UNKNOWN:{unknown}"
+    # If tie or all UNKNOWN → treat as not proven (inconsistent)
+    return 0, f"No strong evidence | SUPPORT:{support}, CONTRADICT:{contradict}, UNKNOWN:{unknown}"
 
 
+# ---------- CONFIDENCE ----------
 def confidence_score(labels):
     if not labels:
         return 0
@@ -103,17 +84,16 @@ def confidence_score(labels):
     total = len(labels)
     support = labels.count("SUPPORT")
     contradict = labels.count("CONTRADICT")
-    unknown = labels.count("UNKNOWN")
 
     strongest = max(support, contradict)
 
-    # agar sab UNKNOWN hai to low confidence
+    # all UNKNOWN → low confidence
     if strongest == 0:
         return 20
 
     conf = (strongest / total) * 100
 
-    # cap confidence so it never looks fake-perfect
+    # never show fake 100%
     conf = min(conf, 90)
 
     return round(conf, 2)
