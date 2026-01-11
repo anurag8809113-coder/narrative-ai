@@ -84,17 +84,29 @@ def confidence_score(labels):
     total = len(labels)
     support = labels.count("SUPPORT")
     contradict = labels.count("CONTRADICT")
+    unknown = labels.count("UNKNOWN")
 
-    strongest = max(support, contradict)
+    decided = support + contradict
 
-    # all UNKNOWN → low confidence
-    if strongest == 0:
-        return 20
+    # Base confidence = kitna clear decision hai
+    if decided == 0:
+        base = 20
+    else:
+        base = (max(support, contradict) / total) * 100
 
-    conf = (strongest / total) * 100
+    # Penalty: zyada UNKNOWN = kam confidence
+    unknown_penalty = (unknown / total) * 30   # max -30%
 
-    # never show fake 100%
-    conf = min(conf, 90)
+    # Penalty: bahut kam claims = kam trust
+    if total < 3:
+        data_penalty = 20
+    else:
+        data_penalty = 0
+
+    conf = base - unknown_penalty - data_penalty
+
+    # Clamp 10–95
+    conf = max(10, min(conf, 95))
 
     return round(conf, 2)
 
